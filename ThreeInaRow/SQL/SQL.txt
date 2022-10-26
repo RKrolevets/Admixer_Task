@@ -1,0 +1,52 @@
+1. Треба додати в таблицю DMS поле NDM (номер документа) з таблиці DMZ, щоб зв'язати їх між собою.
+
+2. Нормалізація порушена, так як сорт (неключове поле) дублюється у TOV та DMS. У DMS його не повинно бути.
+
+3.1. 
+SELECT TOV.NTOV AS name, SUM(DMS.KOL) AS quantity, 
+CAST(SUM(DMS.KOL*DMS.CENA) AS decimal(16, 2)) AS amount
+FROM TOV, DMS, DMZ
+WHERE DMZ.DDM = '2014-05-01'
+AND DMZ.PR = 2
+AND DMS.NDM=DMZ.NDM
+AND TOV.KTOV=DMS.KTOV 
+GROUP BY name
+ORDER BY amount DESC
+
+Примітки: 1)замість CAST можна використати ROUND(SUM(DMS.KOL*DMS.CENA), 2)
+2) Згрупувати можна за TOV.KTOV, але так буде 2 рази "Пиво" та не зрозуміло, де яке саме, оскільки у запрошеному звіті немає ідентифікатора
+
+3.2
+UPDATE DMS
+SET SORT = (SELECT SORT 
+	   FROM TOV
+	   WHERE TOV.KTOV=DMS.KTOV)
+WHERE EXISTS (SELECT SORT 
+	      FROM TOV
+	      WHERE TOV.KTOV=DMS.KTOV)
+
+3.3 
+SELECT TOV.NTOV AS name, SUM(case when DMZ.PR=2 then -1 else 1 end * DMS.KOL) AS quantity, 
+CAST(SUM(case when DMZ.PR=2 then -1 else 1 end * DMS.KOL*DMS.CENA) AS decimal(16, 2)) AS amount
+FROM TOV, DMS, DMZ
+AND DMS.NDM=DMZ.NDM
+AND TOV.KTOV=DMS.KTOV 
+GROUP BY name
+ORDER BY name
+
+3.4
+INSERT INTO DMZ
+VALUES
+(
+SELECT CASE WHEN EXIST (Select max(NDM) from DMZ) THEN max(NDM)+1 else 0 end from DMZ,
+GETDATE(),
+case when (SELECT PR FROM DMZ GROUP BY PR ORDER BY COUNT(*) DESC LIMIT 1)=1 then 2 else 1 end
+)
+
+3.5
+
+INSERT INTO DMS (NDM, KTOV, KOL, CENA, SORT)
+SELECT MAX(NDM), KTOV, KOL, CENA, SORT
+FROM DMS
+WHERE MIN(NDM)
+AND (KTOV, KOL, CENA, SORT) NOT IN (SELECT KTOV, KOL, CENA, SORT FROM DMS WHERE MAX(NDM))
